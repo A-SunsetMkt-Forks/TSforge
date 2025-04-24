@@ -1,12 +1,13 @@
 namespace LibTSforge.Modifiers
 {
-    using System;
     using PhysicalStore;
     using SPP;
+    using System.IO;
+    using System;
 
-    public static class UniqueIdDelete
+    public static class SetIIDParams
     {
-        public static void DeleteUniqueId(PSVersion version, bool production, Guid actId)
+        public static void SetParams(PSVersion version, bool production, Guid actId, PKeyAlgorithm algorithm, int group, int serial, ulong security)
         {
             if (version == PSVersion.Vista) throw new NotSupportedException("This feature is not supported on Windows Vista/Server 2008.");
 
@@ -40,17 +41,26 @@ namespace LibTSforge.Modifiers
 
                 if (keyBlock == null)
                 {
-                    throw new Exception("No product key found.");
+                    throw new InvalidDataException("Failed to get product key data for activation ID " + actId + ".");
                 }
 
                 VariableBag pkb = new VariableBag(keyBlock.Data, version);
 
-                pkb.DeleteBlock("SppPkeyUniqueIdToken");
+                ProductKey pkey = new ProductKey
+                {
+                    Group = group,
+                    Serial = serial,
+                    Security = security,
+                    Algorithm = algorithm,
+                    Upgrade = false
+                };
 
+                string blockName = version == PSVersion.Win7 ? "SppPkeyShortAuthenticator" : "SppPkeyPhoneActivationData";
+                pkb.SetBlock(blockName, pkey.GetPhoneData(version));
                 store.SetBlock(key, pkeyId.ToString(), pkb.Serialize());
             }
 
-            Logger.WriteLine("Successfully removed Unique ID for product key ID " + pkeyId);
+            Logger.WriteLine("Successfully set IID parameters.");
         }
     }
 }

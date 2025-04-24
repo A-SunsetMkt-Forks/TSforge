@@ -4,7 +4,7 @@ namespace LibTSforge.TokenStore
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using LibTSforge.Crypto;
+    using Crypto;
 
     public class TokenStoreModern : ITokenStore
     {
@@ -18,29 +18,29 @@ namespace LibTSforge.TokenStore
         private static readonly byte[] CONTS_FOOTER = Enumerable.Repeat((byte)0xAA, 0x20).ToArray();
 
         private List<TokenEntry> Entries = new List<TokenEntry>();
-        public FileStream TokensFile;
+        private readonly FileStream TokensFile;
 
         public void Deserialize()
         {
             if (TokensFile.Length < BLOCK_SIZE) return;
 
             TokensFile.Seek(0x24, SeekOrigin.Begin);
-            uint nextBlock = 0;
+            uint nextBlock;
 
             BinaryReader reader = new BinaryReader(TokensFile);
             do
             {
-                uint curOffset = reader.ReadUInt32();
+                reader.ReadUInt32();
                 nextBlock = reader.ReadUInt32();
 
                 for (int i = 0; i < ENTRIES_PER_BLOCK; i++)
                 {
-                    curOffset = reader.ReadUInt32();
+                    uint curOffset = reader.ReadUInt32();
                     bool populated = reader.ReadUInt32() == 1;
                     uint contentOffset = reader.ReadUInt32();
                     uint contentLength = reader.ReadUInt32();
                     uint allocLength = reader.ReadUInt32();
-                    byte[] contentData = new byte[] { };
+                    byte[] contentData = { };
 
                     if (populated)
                     {
@@ -140,11 +140,10 @@ namespace LibTSforge.TokenStore
                         writer.WritePadding(BLOCK_PAD_SIZE);
 
                         writer.BaseStream.Seek(curBlockOffset, SeekOrigin.Begin);
-                        byte[] blockHash;
                         byte[] blockData = new byte[BLOCK_SIZE - 0x20];
 
                         tokens.Read(blockData, 0, BLOCK_SIZE - 0x20);
-                        blockHash = CryptoUtils.SHA256Hash(blockData);
+                        byte[] blockHash = CryptoUtils.SHA256Hash(blockData);
 
                         writer.BaseStream.Seek(curBlockOffset + BLOCK_SIZE - 0x20, SeekOrigin.Begin);
                         writer.Write(blockHash);
@@ -273,11 +272,6 @@ namespace LibTSforge.TokenStore
         {
             TokensFile = File.Open(tokensPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             Deserialize();
-        }
-
-        public TokenStoreModern()
-        {
-
         }
 
         public void Dispose()

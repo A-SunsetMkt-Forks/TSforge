@@ -1,14 +1,14 @@
 namespace LibTSforge.Activators
 {
     using System;
-    using LibTSforge.PhysicalStore;
-    using LibTSforge.SPP;
+    using PhysicalStore;
+    using SPP;
 
     public static class AVMA4k
     {
         public static void Activate(PSVersion version, bool production, Guid actId)
         {
-            if (version != PSVersion.WinModern)
+            if (version != PSVersion.WinModern && version != PSVersion.WinBlue)
             {
                 throw new NotSupportedException("AVMA licenses are not available for this product.");
             }
@@ -34,46 +34,41 @@ namespace LibTSforge.Activators
                 throw new NotSupportedException("Non-VT:IA product key installed.");
             }
 
-            Utils.KillSPP();
+            SPPUtils.KillSPP(version);
 
             Logger.WriteLine("Writing TrustedStore data...");
 
-            using (IPhysicalStore store = Utils.GetStore(version, production))
+            using (IPhysicalStore store = SPPUtils.GetStore(version, production))
             {
                 string key = string.Format("SPPSVC\\{0}\\{1}", appId, actId);
-
-                ulong unknown = 0;
-                ulong time1;
-                ulong crcBindTime = (ulong)DateTime.UtcNow.ToFileTime();
-                ulong timerTime;
-
-                ulong expiry = Constants.TimerMax;
 
                 long creationTime = BitConverter.ToInt64(store.GetBlock("__##USERSEP##\\$$_RESERVED_$$\\NAMESPACE__", "__##USERSEP-RESERVED##__$$GLOBAL-CREATION-TIME$$").Data, 0);
                 long tickCount = BitConverter.ToInt64(store.GetBlock("__##USERSEP##\\$$_RESERVED_$$\\NAMESPACE__", "__##USERSEP-RESERVED##__$$GLOBAL-TICKCOUNT-UPTIME$$").Data, 0);
                 long deltaTime = BitConverter.ToInt64(store.GetBlock(key, "__##USERSEP-RESERVED##__$$UP-TIME-DELTA$$").Data, 0);
 
-                time1 = (ulong)(creationTime + tickCount + deltaTime);
-                timerTime = crcBindTime / 10000;
-                expiry /= 10000;
+                const ulong unknown = 0;
+                ulong time1 = (ulong)(creationTime + tickCount + deltaTime);
+                ulong crcBindTime = (ulong)DateTime.UtcNow.ToFileTime();
+                ulong timerTime = crcBindTime / 10000;
+                ulong expiry = Constants.TimerMax / 10000;
 
-                VariableBag avmaBinding = new VariableBag();
+                VariableBag avmaBinding = new VariableBag(version);
 
-                avmaBinding.Blocks.AddRange(new CRCBlock[]
+                avmaBinding.Blocks.AddRange(new[]
                 {
-                    new CRCBlock
+                    new CRCBlockModern
                     {
                         DataType = CRCBlockType.BINARY,
                         Key = new byte[] { },
                         Value = BitConverter.GetBytes(crcBindTime),
                     },
-                    new CRCBlock
+                    new CRCBlockModern
                     {
                         DataType = CRCBlockType.STRING,
                         Key = new byte[] { },
                         ValueAsStr = "AVMA4K",
                     },
-                    new CRCBlock
+                    new CRCBlockModern
                     {
                         DataType = CRCBlockType.STRING,
                         Key = new byte[] { },
@@ -97,7 +92,7 @@ namespace LibTSforge.Activators
                 store.DeleteBlock(key, storeVal);
                 store.DeleteBlock(key, timerVal);
 
-                store.AddBlocks(new PSBlock[]
+                store.AddBlocks(new[]
                 {
                     new PSBlock
                     {

@@ -2,13 +2,14 @@ namespace LibTSforge.Activators
 {
     using System;
     using System.IO;
-    using LibTSforge.Crypto;
-    using LibTSforge.PhysicalStore;
-    using LibTSforge.SPP;
+    using System.Linq;
+    using Crypto;
+    using PhysicalStore;
+    using SPP;
 
     public static class ZeroCID
     {
-        public static void Deposit(Guid actId, string instId)
+        private static void Deposit(Guid actId, string instId)
         {
             uint status = SLApi.DepositConfirmationID(actId, instId, Constants.ZeroCID);
             Logger.WriteLine(string.Format("Depositing fake CID status {0:X}", status));
@@ -46,16 +47,16 @@ namespace LibTSforge.Activators
             string instId = SLApi.GetInstallationID(actId);
             Guid pkeyId = SLApi.GetInstalledPkeyID(actId);
 
-            if (version == PSVersion.Win7)
+            if (version == PSVersion.Vista || version == PSVersion.Win7)
             {
                 Deposit(actId, instId);
             }
 
-            Utils.KillSPP();
+            SPPUtils.KillSPP(version);
 
             Logger.WriteLine("Writing TrustedStore data...");
 
-            using (IPhysicalStore store = Utils.GetStore(version, production))
+            using (IPhysicalStore store = SPPUtils.GetStore(version, production))
             {
                 byte[] hwidBlock = Constants.UniversalHWIDBlock;
 
@@ -65,7 +66,11 @@ namespace LibTSforge.Activators
 
                 byte[] iidHash;
 
-                if (version == PSVersion.Win7)
+                if (version == PSVersion.Vista)
+                {
+                    iidHash = CryptoUtils.SHA256Hash(Utils.EncodeString(instId)).Take(0x10).ToArray();
+                }
+                else if (version == PSVersion.Win7)
                 {
                     iidHash = CryptoUtils.SHA256Hash(Utils.EncodeString(instId));
                 }
@@ -82,11 +87,39 @@ namespace LibTSforge.Activators
                     throw new InvalidDataException("Failed to get product key data for activation ID " + actId + ".");
                 }
 
-                VariableBag pkb = new VariableBag(keyBlock.Data);
+                VariableBag pkb = new VariableBag(keyBlock.Data, version);
 
                 byte[] pkeyData;
 
-                if (version == PSVersion.Win7)
+                if (version == PSVersion.Vista)
+                {
+                    pkeyData = pkb.GetBlock("PKeyBasicInfo").Value;
+                    string uniqueId = Utils.DecodeString(pkeyData.Skip(0x120).Take(0x80).ToArray());
+                    string extPid = Utils.DecodeString(pkeyData.Skip(0x1A0).Take(0x80).ToArray());
+
+                    uint group;
+                    uint.TryParse(extPid.Split('-')[1], out group);
+
+                    if (group == 0)
+                    {
+                        throw new FormatException("Extended PID has invalid format.");
+                    }
+
+                    ulong shortauth;
+
+                    try
+                    {
+                        shortauth = BitConverter.ToUInt64(Convert.FromBase64String(uniqueId.Split('&')[1]), 0);
+                    } 
+                    catch
+                    {
+                        throw new FormatException("Key Unique ID has invalid format.");
+                    }
+
+                    shortauth |= (ulong)group << 41;
+                    pkeyData = BitConverter.GetBytes(shortauth);
+                }
+                else if (version == PSVersion.Win7)
                 {
                     pkeyData = pkb.GetBlock("SppPkeyShortAuthenticator").Value;
                 }
@@ -99,26 +132,34 @@ namespace LibTSforge.Activators
                 store.SetBlock(key, pkeyId.ToString(), pkb.Serialize());
 
                 BinaryWriter writer = new BinaryWriter(new MemoryStream());
-                writer.Write(0x20);
+                writer.Write(iidHash.Length);
                 writer.Write(iidHash);
                 writer.Write(hwidBlock.Length);
                 writer.Write(hwidBlock);
                 byte[] tsHwidData = writer.GetBytes();
 
                 writer = new BinaryWriter(new MemoryStream());
-                writer.Write(0x20);
+                writer.Write(iidHash.Length);
                 writer.Write(iidHash);
                 writer.Write(pkeyData.Length);
                 writer.Write(pkeyData);
                 byte[] tsPkeyInfoData = writer.GetBytes();
 
-                store.AddBlocks(new PSBlock[] {
+                string phoneVersion = version == PSVersion.Vista ? "6.0" : "7.0";
+                Guid indexSlid = version == PSVersion.Vista ? actId : pkeyId;
+                string hwidBlockName = string.Format("msft:Windows/{0}/Phone/Cached/HwidBlock/{1}", phoneVersion, indexSlid);
+                string pkeyInfoName = string.Format("msft:Windows/{0}/Phone/Cached/PKeyInfo/{1}", phoneVersion, indexSlid);
+
+                store.DeleteBlock(key, hwidBlockName);
+                store.DeleteBlock(key, pkeyInfoName);
+
+                store.AddBlocks(new[] {
                     new PSBlock
                     {
                         Type = BlockType.NAMED,
                         Flags = 0,
                         KeyAsStr = key,
-                        ValueAsStr = "msft:Windows/7.0/Phone/Cached/HwidBlock/" + pkeyId,
+                        ValueAsStr = hwidBlockName,
                         Data = tsHwidData
                     }, 
                     new PSBlock
@@ -126,18 +167,18 @@ namespace LibTSforge.Activators
                         Type = BlockType.NAMED,
                         Flags = 0,
                         KeyAsStr = key,
-                        ValueAsStr = "msft:Windows/7.0/Phone/Cached/PKeyInfo/" + pkeyId,
+                        ValueAsStr = pkeyInfoName,
                         Data = tsPkeyInfoData
                     }
                 });
             }
 
-            if (version != PSVersion.Win7)
+            if (version != PSVersion.Vista && version != PSVersion.Win7)
             {
                 Deposit(actId, instId);
             }
 
-            SLApi.RefreshLicenseStatus();
+            SPPUtils.RestartSPP(version);
             SLApi.FireStateChangedEvent(appId);
             Logger.WriteLine("Activated using ZeroCID successfully.");
         }

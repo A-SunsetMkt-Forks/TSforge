@@ -2,15 +2,19 @@ namespace LibTSforge.Modifiers
 {
     using System.Collections.Generic;
     using System.Linq;
-    using LibTSforge.PhysicalStore;
-    using LibTSforge;
+    using PhysicalStore;
+    using SPP;
+    using System;
+
     public static class KeyChangeLockDelete
     {
         public static void Delete(PSVersion version, bool production)
         {
-            Utils.KillSPP();
+            if (version == PSVersion.Vista) throw new NotSupportedException("This feature is not supported on Windows Vista/Server 2008.");
+
+            SPPUtils.KillSPP(version);
             Logger.WriteLine("Writing TrustedStore data...");
-            using (IPhysicalStore store = Utils.GetStore(version, production))
+            using (IPhysicalStore store = SPPUtils.GetStore(version, production))
             {
                 List<string> values = new List<string>
                 {

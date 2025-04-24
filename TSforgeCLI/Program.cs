@@ -4,35 +4,43 @@ namespace TSforgeCLI
     using LibTSforge;
     using LibTSforge.Activators;
     using LibTSforge.Modifiers;
+    using LibTSforge.SPP;
 
     public class Program
     {
         private class Options
         {
-            public bool Dump = false;
+            public bool Dump;
             public string DumpFilePath = "dump.dat";
-            public string EncrFilePath = null;
-            public bool Load = false;
+            public string EncrFilePath;
+            public bool Load;
             public string LoadFilePath = "load.dat";
-            public bool KMS4k = false;
-            public bool AVMA4k = false;
-            public bool ZCID = false;
-            public bool TimerReset = false;
-            public bool RearmReset = false;
-            public bool DeleteUniqueId = false;
-            public bool InstallGenPKey = false;
-            public bool KMSHostCharge = false;
-            public bool TamperedFlagsDelete = false;
-            public bool KeyChangeLockDelete = false;
-            public bool? Production = null;
-            public PSVersion? Version = null;
+            public bool KMS4k;
+            public bool AVMA4k;
+            public bool ZCID;
+            public bool TimerReset;
+            public bool RearmReset;
+            public bool DeleteUniqueId;
+            public bool InstallGenPKey;
+            public bool KMSHostCharge;
+            public bool TamperedFlagsDelete;
+            public bool KeyChangeLockDelete;
+            public bool SetIIDParams;
+            public bool? Production;
+            public PSVersion? Version;
             public Guid ActivationId = Guid.Empty;
-            public bool ShowHelp = false;
+            public bool ShowHelp;
+            public PKeyAlgorithm? Algorithm;
+            public int Group;
+            public int Serial;
+            public ulong Security;
         }
 
         public static void Main(string[] args)
         {
             Logger.WriteLine("TSforge (c) MASSGRAVE 2025");
+
+            Utils.Wow64EnableWow64FsRedirection(false);
 
             try
             {
@@ -51,15 +59,15 @@ namespace TSforgeCLI
                 }
 
                 PSVersion version = options.Version ?? Utils.DetectVersion();
-                bool production = options.Production ?? Utils.DetectCurrentKey();
+                bool production = options.Production ?? SPPUtils.DetectCurrentKey();
 
                 if (options.Dump)
                 {
-                    Utils.DumpStore(version, production, options.DumpFilePath, options.EncrFilePath);
+                    SPPUtils.DumpStore(version, production, options.DumpFilePath, options.EncrFilePath);
                 }
                 else if (options.Load)
                 {
-                    Utils.LoadStore(version, production, options.LoadFilePath);
+                    SPPUtils.LoadStore(version, production, options.LoadFilePath);
                 }
                 else if (options.KMS4k)
                 {
@@ -91,7 +99,7 @@ namespace TSforgeCLI
                 }
                 else if (options.KMSHostCharge)
                 {
-                    KMSHostCharge.Charge(version, options.ActivationId, production);
+                    KMSHostCharge.Charge(version, production, options.ActivationId);
                 }
                 else if (options.TamperedFlagsDelete)
                 {
@@ -100,6 +108,10 @@ namespace TSforgeCLI
                 else if (options.KeyChangeLockDelete)
                 {
                     KeyChangeLockDelete.Delete(version, production);
+                } 
+                else if (options.SetIIDParams)
+                {
+                    SetIIDParams.SetParams(version, production, options.ActivationId, options.Algorithm.Value, options.Group, options.Serial, options.Security);
                 }
                 else
                 {
@@ -185,6 +197,38 @@ namespace TSforgeCLI
                     case "/revl":
                         options.KeyChangeLockDelete = true;
                         break;
+                    case "/siid":
+                        options.SetIIDParams = true;
+
+                        if (args.Length - i - 1 < 4) throw new ArgumentException("Not enough arguments specified.");
+
+                        string algoType = args[++i];
+
+                        if (algoType == "5")
+                        {
+                            options.Algorithm = PKeyAlgorithm.PKEY2005;
+                        }
+                        else if (algoType == "9")
+                        {
+                            options.Algorithm = PKeyAlgorithm.PKEY2009;
+                        } 
+                        else 
+                        { 
+                            throw new ArgumentException("Invalid key algorithm specified.");
+                        }
+
+                        try
+                        {
+                            options.Group = int.Parse(args[++i]);
+                            options.Serial = int.Parse(args[++i]);
+                            options.Security = ulong.Parse(args[++i]);
+                        } 
+                        catch
+                        {
+                            throw new ArgumentException("Failed to parse key parameters.");
+                        }
+
+                        break;
                     default:
                         try
                         {
@@ -194,7 +238,6 @@ namespace TSforgeCLI
                         {
                             Logger.WriteLine("Argument doesn't exist or the specified activation ID is invalid.");
                             options.ShowHelp = true;
-                            break;
                         }
                         break;
                 }
@@ -206,25 +249,26 @@ namespace TSforgeCLI
         private static void DisplayUsage()
         {
             string exeName = typeof(Program).Namespace;
-            Logger.WriteLine("Usage: " + exeName + " [/dump <filePath> (<encrFilePath>)] [/load <filePath>] [/kms4k] [/avma4k] [/zcid] [/rtmr] [/duid] [/igpk] [/kmsc] [/ctpr] [/revl] [/prod] [/test] [<activation id>] [/ver <version override>]");
+            Logger.WriteLine("Usage: " + exeName + " [/dump <filePath> (<encrFilePath>)] [/load <filePath>] [/kms4k] [/avma4k] [/zcid] [/rtmr] [/duid] [/igpk] [/kmsc] [/ctpr] [/revl] [/siid <5/9> <group> <serial> <security>] [/prod] [/test] [<activation id>] [/ver <version override>]");
             Logger.WriteLine("Options:");
-            Logger.WriteLine("\t/dump <filePath> (<encrFilePath>)       Dump and decrypt the physical store to the specified path.");
-            Logger.WriteLine("\t/load <filePath>                        Load and re-encrypt the physical store from the specified path.");
-            Logger.WriteLine("\t/kms4k                                  Activate using KMS4k. Only supports KMS-activatable editions.");
-            Logger.WriteLine("\t/avma4k                                 Activate using AVMA4k. Only supports Windows Server 2012 R2+.");
-            Logger.WriteLine("\t/zcid                                   Activate using ZeroCID. Only supports phone-activatable editions.");
-            Logger.WriteLine("\t/rtmr                                   Reset grace/evaluation period timers.");
-            Logger.WriteLine("\t/rrmc                                   Reset the rearm count.");
-            Logger.WriteLine("\t/duid                                   Delete product key Unique ID used in online key validation.");
-            Logger.WriteLine("\t/igpk                                   Install auto-generated/fake product key according to the specified Activation ID");
-            Logger.WriteLine("\t/kmsc                                   Reset the charged count on the local KMS server to 25. Requires an activated KMS host.");
-            Logger.WriteLine("\t/ctpr                                   Remove the tamper flags that get set in the physical store when sppsvc detects an attempt to tamper with it.");
-            Logger.WriteLine("\t/revl                                   Remove the key change lock in evaluation edition store.");
-            Logger.WriteLine("\t/prod                                   Use SPP production key.");
-            Logger.WriteLine("\t/test                                   Use SPP test key.");
-            Logger.WriteLine("\t/ver <version>                          Override the detected version. Available versions: vista, 7, 8early, 8, blue, modern.");
-            Logger.WriteLine("\t<activation id>                         A specific activation ID. Useful if you want to activate specific addons like ESU.");
-            Logger.WriteLine("\t/?                                      Display this help message.");
+            Logger.WriteLine("\t/dump <filePath> (<encrFilePath>)         Dump and decrypt the physical store to the specified path.");
+            Logger.WriteLine("\t/load <filePath>                          Load and re-encrypt the physical store from the specified path.");
+            Logger.WriteLine("\t/kms4k                                    Activate using KMS4k. Only supports KMS-activatable editions.");
+            Logger.WriteLine("\t/avma4k                                   Activate using AVMA4k. Only supports Windows Server 2012 R2+.");
+            Logger.WriteLine("\t/zcid                                     Activate using ZeroCID. Only supports phone-activatable editions.");
+            Logger.WriteLine("\t/rtmr                                     Reset grace/evaluation period timers.");
+            Logger.WriteLine("\t/rrmc                                     Reset the rearm count.");
+            Logger.WriteLine("\t/duid                                     Delete product key Unique ID used in online key validation.");
+            Logger.WriteLine("\t/igpk                                     Install auto-generated/fake product key according to the specified Activation ID");
+            Logger.WriteLine("\t/kmsc                                     Reset the charged count on the local KMS server to 25. Requires an activated KMS host.");
+            Logger.WriteLine("\t/ctpr                                     Remove the tamper flags that get set in the physical store when sppsvc detects an attempt to tamper with it.");
+            Logger.WriteLine("\t/revl                                     Remove the key change lock in evaluation edition store.");
+            Logger.WriteLine("\t/siid <5/9> <group> <serial> <security>   Set Installation ID parameters independently of installed key. 5/9 argument specifies PKEY200[5/9] key algorithm.");
+            Logger.WriteLine("\t/prod                                     Use SPP production key.");
+            Logger.WriteLine("\t/test                                     Use SPP test key.");
+            Logger.WriteLine("\t/ver <version>                            Override the detected version. Available versions: vista, 7, 8, blue, modern.");
+            Logger.WriteLine("\t<activation id>                           A specific activation ID. Useful if you want to activate specific addons like ESU.");
+            Logger.WriteLine("\t/?                                        Display this help message.");
         }
 
         private static PSVersion ParseVersion(string ver)
@@ -233,7 +277,6 @@ namespace TSforgeCLI
             {
                 case "vista": return PSVersion.Vista;
                 case "7": return PSVersion.Win7;
-                case "8early": return PSVersion.Win8Early;
                 case "8": return PSVersion.Win8;
                 case "blue": return PSVersion.WinBlue;
                 case "modern": return PSVersion.WinModern;

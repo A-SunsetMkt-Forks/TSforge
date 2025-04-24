@@ -3,8 +3,8 @@ namespace LibTSforge.SPP
     using System;
     using System.IO;
     using System.Linq;
-    using LibTSforge.Crypto;
-    using LibTSforge.PhysicalStore;
+    using Crypto;
+    using PhysicalStore;
 
     public class ProductKey
     {
@@ -18,11 +18,11 @@ namespace LibTSforge.SPP
         public ulong Security;
         public bool Upgrade;
         public PKeyAlgorithm Algorithm;
-        public string EulaType;
-        public string PartNumber;
-        public string Edition;
-        public string Channel;
-        public Guid ActivationId;
+        public readonly string EulaType;
+        public readonly string PartNumber;
+        public readonly string Edition;
+        public readonly string Channel;
+        public readonly Guid ActivationId;
 
         private string mpc;
         private string pid2;
@@ -30,6 +30,11 @@ namespace LibTSforge.SPP
         public byte[] KeyBytes
         {
             get { return BitConverter.GetBytes(klow).Concat(BitConverter.GetBytes(khigh)).ToArray(); }
+        }
+
+        public ProductKey()
+        {
+
         }
 
         public ProductKey(int serial, ulong security, bool upgrade, PKeyAlgorithm algorithm, ProductConfig config, KeyRange range)
@@ -60,22 +65,22 @@ namespace LibTSforge.SPP
 
         public Guid GetPkeyId()
         {
-            VariableBag pkb = new VariableBag();
-            pkb.Blocks.AddRange(new CRCBlock[]
+            VariableBag pkb = new VariableBag(PSVersion.WinModern);
+            pkb.Blocks.AddRange(new[]
             {
-                new CRCBlock
+                new CRCBlockModern
                 {
                     DataType = CRCBlockType.STRING,
                     KeyAsStr = "SppPkeyBindingProductKey",
                     ValueAsStr = ToString()
                 },
-                new CRCBlock
+                new CRCBlockModern
                 {
                     DataType = CRCBlockType.BINARY,
                     KeyAsStr = "SppPkeyBindingMiscData",
                     Value = new byte[] { }
                 },
-                new CRCBlock
+                new CRCBlockModern
                 {
                     DataType = CRCBlockType.STRING,
                     KeyAsStr = "SppPkeyBindingAlgorithm",
@@ -86,16 +91,6 @@ namespace LibTSforge.SPP
             return new Guid(CryptoUtils.SHA256Hash(pkb.Serialize()).Take(16).ToArray());
         }
 
-        public string GetDefaultMPC()
-        {
-            int build = Environment.OSVersion.Version.Build;
-            string defaultMPC = build >= 10240 ? "03612" :
-                                build >= 9600 ? "06401" :
-                                build >= 9200 ? "05426" :
-                                "55041";
-            return defaultMPC;
-        }
-
         public string GetMPC()
         {
             if (mpc != null)
@@ -103,10 +98,15 @@ namespace LibTSforge.SPP
                 return mpc;
             }
 
-            mpc = GetDefaultMPC();
+            int build = Environment.OSVersion.Version.Build;
+
+            mpc = build >= 10240 ? "03612" :
+                    build >= 9600 ? "06401" :
+                    build >= 9200 ? "05426" :
+                    "55041";
 
             // setup.cfg doesn't exist in Windows 8+
-            string setupcfg = string.Format("{0}\\oobe\\{1}", Environment.SystemDirectory, "setup.cfg");
+            string setupcfg = string.Format(@"{0}\oobe\{1}", Environment.SystemDirectory, "setup.cfg");
 
             if (!File.Exists(setupcfg) || Edition.Contains(";"))
             {
@@ -244,17 +244,17 @@ namespace LibTSforge.SPP
         {
             if (version == PSVersion.Win7)
             {
-                Random rnd = new Random(Group * 1000000000 + Serial);
-                byte[] data = new byte[8];
-                rnd.NextBytes(data);
-                return data;
+                ulong shortauth = ((ulong)Group << 41) | (Security << 31) | ((ulong)Serial << 1) | (Upgrade ? (ulong)1 : 0);
+                return BitConverter.GetBytes(shortauth);
             }
 
             int serialHigh = Serial / 1000000;
             int serialLow = Serial % 1000000;
 
             BinaryWriter writer = new BinaryWriter(new MemoryStream());
-            writer.Write(new Guid("B8731595-A2F6-430B-A799-FBFFB81A8D73").ToByteArray());
+            string algoId = Algorithm == PKeyAlgorithm.PKEY2005 ? "B8731595-A2F6-430B-A799-FBFFB81A8D73" : "660672EF-7809-4CFD-8D54-41B7FB738988";
+
+            writer.Write(new Guid(algoId).ToByteArray());
             writer.Write(Group);
             writer.Write(serialHigh);
             writer.Write(serialLow);
