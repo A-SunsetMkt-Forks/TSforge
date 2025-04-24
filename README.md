@@ -4,7 +4,7 @@ By WitherOrNot & asdcorp
 
 ## About
 
-A collection of activation/evaluation extension methods for Windows 7 through 11.
+A collection of activation/evaluation extension methods for Windows Vista through 11.
 
 Note: We provide no support for direct use of this tool. The only supported implementation of the methods presented here is in [Microsoft Activation Scripts](https://massgrave.dev).
 
