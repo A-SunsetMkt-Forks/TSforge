@@ -23,7 +23,7 @@ namespace LibTSforge.SPP
 
         public bool Contains(int n)
         {
-            return Start <= n && End <= n;
+            return Start <= n && n <= End;
         }
     }
 
@@ -153,10 +153,19 @@ namespace LibTSforge.SPP
                     string refActIdStr = configNode.SelectSingleNode("./p:ActConfigId", nsmgr).InnerText;
                     Guid refActId = new Guid(refActIdStr);
                     int group = int.Parse(configNode.SelectSingleNode("./p:RefGroupId", nsmgr).InnerText);
-                    List<KeyRange> keyRanges = ranges[refActIdStr];
+                    List<KeyRange> keyRanges;
+                    ranges.TryGetValue(refActIdStr, out keyRanges);
+
+                    if (keyRanges == null) 
+                    {
+                        continue;
+                    }
 
                     if (keyRanges.Count > 0 && !Products.ContainsKey(refActId))
                     {
+                        PKeyAlgorithm algorithm;
+                        algorithms.TryGetValue(group, out algorithm);
+
                         ProductConfig productConfig = new ProductConfig
                         {
                             GroupId = group,
@@ -164,7 +173,7 @@ namespace LibTSforge.SPP
                             Description = configNode.SelectSingleNode("./p:ProductDescription", nsmgr).InnerText,
                             Channel = configNode.SelectSingleNode("./p:ProductKeyType", nsmgr).InnerText,
                             Randomized = configNode.SelectSingleNode("./p:ProductKeyType", nsmgr).InnerText.ToLower() == "true",
-                            Algorithm = algorithms[group],
+                            Algorithm = algorithm,
                             Ranges = keyRanges,
                             ActivationId = refActId
                         };
